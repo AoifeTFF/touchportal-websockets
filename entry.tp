@@ -1,0 +1,51 @@
+{
+  "sdk": 3,
+  "version": 100,
+  "name": "Websockets",
+  "id": "tp.plugin.websockets.python",
+  "configuration": {
+    "colorDark": "#25274c",
+    "colorLight": "#707ab5"
+  },
+  "plugin_start_cmd": "%TP_PLUGIN_FOLDER%TPWebsockets\\websockets.exe @config.txt",
+  "categories": [
+    {
+      "id": "tp.plugin.websockets.python.main",
+      "name": "Python Examples",
+      "actions": [
+        {
+          "id": "tp.plugin.websockets.python.act.sendmessage",
+          "name": "Send Message",
+          "prefix": "Python Examples",
+          "type": "communicate",
+          "format": "Send the text string {$tp.plugin.websockets.python.act.sendmessage.data.message$} to {$tp.plugin.websockets.python.act.sendmessage.data.destination$}",
+          "tryInline": true,
+          "data": [
+            {
+              "id": "tp.plugin.websockets.python.act.sendmessage.data.destination",
+              "type": "text",
+              "label": "Destination",
+              "default": "<None>"
+            },
+            {
+              "id": "tp.plugin.websockets.python.act.sendmessage.data.message",
+              "type": "text",
+              "label": "Message",
+              "default": "<None>"
+            }
+          ]
+        }
+      ],
+      "states": [],
+      "events": []
+    }
+  ],
+  "settings": [
+    {
+      "name": "Example Setting",
+      "type": "text",
+      "default": "Example value",
+      "readOnly": false
+    }
+  ]
+}
