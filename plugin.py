@@ -74,7 +74,7 @@ TP_PLUGIN_SETTINGS = {
 TP_PLUGIN_CATEGORIES = {
     "main": {
         'id': PLUGIN_ID + ".main",
-        'name' : "Python Examples",
+        'name' : "Websockets",
         # 'imagepath' : "icon-24.png"
     }
 }

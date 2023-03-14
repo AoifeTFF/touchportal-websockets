@@ -11,12 +11,12 @@
   "categories": [
     {
       "id": "tp.plugin.websockets.python.main",
-      "name": "Python Examples",
+      "name": "Websockets",
       "actions": [
         {
           "id": "tp.plugin.websockets.python.act.sendmessage",
           "name": "Send Message",
-          "prefix": "Python Examples",
+          "prefix": "Websockets",
           "type": "communicate",
           "format": "Send the text string {$tp.plugin.websockets.python.act.sendmessage.data.message$} to {$tp.plugin.websockets.python.act.sendmessage.data.destination$}",
           "tryInline": true,
