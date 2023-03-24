@@ -12,14 +12,9 @@ import TouchPortalAPI as TP
 from argparse import ArgumentParser
 from TouchPortalAPI.logger import Logger
 
-#import websockets
 import websocket
 import asyncio
-import datetime
-import concurrent.futures
 import threading
-#import _thread
-import re
 
 # Version string of this plugin (in Python style).
 __version__ = "1.0"
@@ -184,14 +179,10 @@ def handleSettings(settings, on_connect=False):
 #######################################################################################################################
 ## GLOBAL VARIABLES
 
-G_TEMP_ADDRESS = "ws://localhost:8000/vnyan"
-## G_QUEUE = asyncio.Queue()
-
 ## DON'T FUCKING DEVIATE!
 ## { 
-##     address: { 
+##     address: {
 ##         "websocket_run_thread": <thread>, 
-##         "websocket_queue_thread": <thread>,  # the thread where messages in outgoing_messages gets consumed
 ##         "websocket": <socket>,               # the websocket itself
 ##         "outgoing_messages": [<string>,...], # queue of messages received from TouchPortal
 ##         "connected": Bool,                   # flag that signals to the queue thread that the socket is connected
@@ -200,6 +191,9 @@ G_TEMP_ADDRESS = "ws://localhost:8000/vnyan"
 G_SOCKETS = dict()
 
 G_RUNNING = True
+
+G_QUEUE_LOOP_THREAD = None
+G_QUEUE_LOOP_THREAD_EVENT = None
 
 ## END GLOBAL VARIABLES
 #######################################################################################################################
@@ -211,103 +205,62 @@ G_RUNNING = True
 def onConnect(data):
     global g_log
     g_log.info(f"Connected to TP v{data.get('tpVersionString', '?')}, plugin v{data.get('pluginVersion', '?')}.")
-    g_log.debug(f"Connection: {data}")
     if settings := data.get('settings'):
         handleSettings(settings, True)
 
 # Settings handler
 @TPClient.on(TP.TYPES.onSettingUpdate)
 def onSettingUpdate(data):
-    g_log.debug(f"Settings: {data}")
+    #g_log.debug(f"Settings: {data}")
     if (settings := data.get('values')):
         handleSettings(settings, False)
 
-#def sendPingPacket(ws, result):
-   #pingStr = re.findall(".......(.*)", result)
-    #if len(pingStr) != 0:
-        #pingStr = pingStr[0]
-        #ws.send("~m~" + str(len(pingStr)) + "~m~" + pingStr)
-
-#def websocketJob():
-    #global g_log, G_SOCKETS, G_TEMP_ADDRESS
-    #g_log.info("===== STARTING WEBSOCKET LOOP!")
-
-    #G_SOCKETS[G_TEMP_ADDRESS] = {
-        #"socket": websockets.create_connection(G_TEMP_ADDRESS),
-        #"outgoing_messages": asyncio.Queue()
-        #websockets.client.connect(G_TEMP_ADDRESS)
-    #}
-    #while True:
-        #try:
-            #result = ws.recv()
-            #pingStr = re.findall(".......(.*)", result)
-            #if len(pingStr) != 0:
-                #sendPingPacket(ws, result)
-            #else:
-                #g_log.info(f"{result}")
-            
-            #while not G_QUEUE.empty():
-                #G_SOCKETS[G_TEMP_ADDRESS]["socket"].send(G_QUEUE.get_nowait())
-
-        #except KeyboardInterrupt:
-            #print("\nGoodbye!")
-            #exit(0)
-        #except Exception as e:
-            #print(f"ERROR: {e}\nMessage: {result}")
-            #continue
-
-def ws_message(ws, message):
-    global G_SOCKETS
-    print("WebSocket thread: %s" % message)
-
 def ws_open(ws):
     global G_SOCKETS, g_log
-    g_log.info(f"===== socket {ws.url} has been opened")
+    g_log.info(f"socket {ws.url} has been opened")
     G_SOCKETS[ws.url]["connected"] = True
 
 def ws_run_thread(*args):
     global G_SOCKETS, g_log
     url = args[0]
-    #ws = websocket.WebSocketApp(G_TEMP_ADDRESS, on_open = ws_open, on_message = ws_message)
-    g_log.info(f"===== attempting to open connection to {url}")
+    g_log.info(f"attempting to open connection to {url}")
     if url not in G_SOCKETS:
-        g_log.critical("there is no socket cached for address {url} prior to call to ws_run_thread. Unfuck your shit Aoife!")
+        g_log.critical(f"there is no socket cached for address {url} prior to call to ws_run_thread. Fix your shit Aoife!")
         return
 
     if G_SOCKETS[url]["websocket"] is None:
-        g_log.critical("THERE'S NO WEBSOCKET FOR THE THREAD TO USE! UNFUCK YOUR SHIT AOIFE!")
+        g_log.critical("THERE'S NO WEBSOCKET FOR THE THREAD TO USE! FIX YOUR SHIT AOIFE!")
         return
-
-    g_log.info("===== ok, now we're opening the connection")
-    #G_SOCKETS[] = websocket.WebSocketApp(args[0], on_open = ws_open, on_message = ws_message)
+    
     G_SOCKETS[url]["websocket"].run_forever(ping_interval = 9, reconnect = 5) # blocking call
 
 def ws_queue_loop(*args):
-    global G_RUNNING, G_SOCKETS, g_log
-    address = args[0]
+    global G_RUNNING, G_SOCKETS, g_log, G_QUEUE_LOOP_THREAD_EVENT
     while G_RUNNING:
-        socket = G_SOCKETS[address]["websocket"]
-        while not G_SOCKETS[address]["outgoing_messages"].empty():
-            if not G_RUNNING: return # ghetto shit
+        g_log.info("waiting for data...")
+        G_QUEUE_LOOP_THREAD_EVENT.wait()
+        G_QUEUE_LOOP_THREAD_EVENT.clear()
+        for data in G_SOCKETS.values():
+            if not G_RUNNING: 
+                return ## short circuit
 
-            while not G_SOCKETS[address]["connected"]:
-                if not G_RUNNING: return # ghetto shit
-                g_log.info("===== waiting for socket to connect...")
-
-            message = G_SOCKETS[address]["outgoing_messages"].get_nowait()
-            g_log.info(f"===== sending message {message} to socket {address}")
-            G_SOCKETS[address]["websocket"].send(message)
+            # don't bother until we connect.
+            if not data["connected"]:
+                g_log.info(f"not connected yet {data}")
+                continue
+            messageQ = data["outgoing_messages"]
+            while not messageQ.empty():
+                message = messageQ.get_nowait()
+                data["websocket"].send(message)
 
 # Action handler
 @TPClient.on(TP.TYPES.onAction)
 def onAction(data):
     global G_SOCKETS, g_log
-
-    g_log.debug(f"Action: {data}")
     # check that `data` and `actionId` members exist and save them for later use
     if not (action_data := data.get('data')) or not (aid := data.get('actionId')):
         return
-    g_log.info(action_data)
+    # g_log.info(action_data)
 
     if aid == TP_PLUGIN_ACTIONS['sendmessage']['id']:
         address = message = ""
@@ -317,34 +270,25 @@ def onAction(data):
 
             elif obj.get('id') == "tp.plugin.websockets.python.act.sendmessage.data.message":
                 message = obj['value']
-
-        g_log.info(f"===== pushing {message} to queue")
-        #ws = websocket.create_connection(destination)
-        #ws.send(message)
-        #ws.close()
+                
         if address not in G_SOCKETS:
             ## { 
             ##     address: { 
             ##         "websocket_run_thread":   <thread>,       # the thread that runs the websocket
-            ##         "websocket_queue_thread": <thread>,       # the thread where messages in outgoing_messages get consumed
             ##         "websocket":              <socket>,       # the websocket itself
             ##         "outgoing_messages":      [<string>,...], # queue of messages received from TouchPortal
             ##         "connected":              <bool>,         # flag that signals to the queue thread that the socket is connected
             ##     }
             ## }
-            g_log.info("====== opening connection")
             G_SOCKETS[address] = {}
             G_SOCKETS[address]["outgoing_messages"] = asyncio.Queue()
-            G_SOCKETS[address]["websocket"] = websocket.WebSocketApp(address, on_open = ws_open, on_message = ws_message)
+            G_SOCKETS[address]["websocket"] = websocket.WebSocketApp(address, on_open = ws_open)
             G_SOCKETS[address]["connected"] = False
-            G_SOCKETS[address]["websocket_queue_thread"] = threading.Thread(target = ws_queue_loop, args = [address])
             G_SOCKETS[address]["websocket_run_thread"] = threading.Thread(target = ws_run_thread, args = [address])
-            G_SOCKETS[address]["websocket_queue_thread"].start()
             G_SOCKETS[address]["websocket_run_thread"].start()
 
+        G_QUEUE_LOOP_THREAD_EVENT.set()
         G_SOCKETS[address]["outgoing_messages"].put_nowait(message)
-        #G_QUEUE.put_nowait(message)
-        #asyncio.run(sendmessage(message))
 
     else:
         g_log.warning("Got unknown action ID: " + aid)
@@ -355,29 +299,28 @@ def onShutdown(data):
     global G_RUNNING, G_SOCKETS, g_log
 
     g_log.info('Received shutdown event from TP Client.')
+    G_QUEUE_LOOP_THREAD_EVENT.set()
+    g_log.info("stopping the queue thread")
+    G_QUEUE_LOOP_THREAD.join()
 
     G_RUNNING = False
-    for data in G_SOCKETS.values():
+    for address, data in G_SOCKETS.items():
+        g_log.info(f"killing connection to {address}")
         data["websocket"].close()
         data["websocket_run_thread"].join()
-        data["websocket_queue_thread"].join()
     G_SOCKETS = {}
-    # G_WEBSOCKET.wait_closed()
-    # asyncio.run(disconnect())
-    # We do not need to disconnect manually because we used `autoClose = True`
-    # when constructing TPClient()
-    # TPClient.disconnect()
 
 # Error handler
 @TPClient.on(TP.TYPES.onError)
 def onError(exc):
+    global G_RUNNING, G_SOCKETS
     g_log.error(f'Error in TP Client event handler: {repr(exc)}')
     # ... do something ?
 
 ## main
 
 def main():
-    global TPClient, g_log
+    global TPClient, G_QUEUE_LOOP_THREAD, G_QUEUE_LOOP_THREAD_EVENT, g_log
     ret = 0  # sys.exit() value
 
     # default log file destination
@@ -438,6 +381,10 @@ def main():
     g_log.info(f"Starting {TP_PLUGIN_INFO['name']} v{__version__} on {sys.platform}.")
 
     try:
+        G_QUEUE_LOOP_THREAD_EVENT = threading.Event()
+        G_QUEUE_LOOP_THREAD = threading.Thread(target = ws_queue_loop)
+        G_QUEUE_LOOP_THREAD.start()
+
         # Connect to Touch Portal desktop application.
         # If connection succeeds, this method will not return (blocks) until the client is disconnected.
         TPClient.connect()
