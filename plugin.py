@@ -12,9 +12,14 @@ import TouchPortalAPI as TP
 from argparse import ArgumentParser
 from TouchPortalAPI.logger import Logger
 
-import websockets
+#import websockets
+import websocket
 import asyncio
-
+import datetime
+import concurrent.futures
+import threading
+#import _thread
+import re
 
 # Version string of this plugin (in Python style).
 __version__ = "1.0"
@@ -23,6 +28,7 @@ __version__ = "1.0"
 # It also forms the base for all other ID strings (for states, actions, etc).
 PLUGIN_ID = "tp.plugin.websockets.python"
 
+#######################################################################################################################
 ## Start Python SDK declarations
 # These will be used to generate the entry.tp file,
 # and of course can also be used within this plugin's code.
@@ -35,11 +41,11 @@ PLUGIN_ID = "tp.plugin.websockets.python"
 # Note that you may add any arbitrary keys/data to these dictionaries
 # w/out breaking the generation routine. Only known TP SDK attributes
 # (targeting the specified SDK version) will be used in the final entry.tp JSON.
-##
+#######################################################################################################################
 
 # Basic plugin metadata
 TP_PLUGIN_INFO = {
-    'sdk': 3,
+    'sdk': 6,
     'version': int(float(__version__) * 100),  # TP only recognizes integer version numbers
     'name': "Websockets",
     'id': PLUGIN_ID,
@@ -48,26 +54,26 @@ TP_PLUGIN_INFO = {
     'configuration': {
         'colorDark': "#25274c",
         'colorLight': "#707ab5"
-    },
-    "doc": {
-        "repository": "KillerBOSS2019:TouchPortal-API",
-        "Install": "example install instruction",
-        "description": "example description"
     }
+    #"doc": {
+        #"repository": "KillerBOSS2019:TouchPortal-API",
+        #"Install": "example install instruction",
+        #"description": "example description"
+    #}
 }
 
 # Setting(s) for this plugin. These could be either for users to
 # set, or to persist data between plugin runs (as read-only settings).
 TP_PLUGIN_SETTINGS = {
-    'example': {
-        'name': "Example Setting",
+    #'example': {
+        #'name': "Example Setting",
         # "text" is the default type and could be omitted here
-        'type': "text",
-        'default': "Example value",
-        'readOnly': False,  # this is also the default
-        "doc": "example doc for example setting",
-        'value': None  # we can optionally use the settings struct to hold the current value
-    },
+        #'type': "text",
+        #'default': "Example value",
+        #'readOnly': False,  # this is also the default
+        #"doc": "example doc for example setting",
+        #'value': None  # we can optionally use the settings struct to hold the current value
+    #},
 }
 
 # This example only uses one Category for actions/etc., but multiple categories are supported also.
@@ -89,7 +95,7 @@ TP_PLUGIN_ACTIONS = {
         'prefix': TP_PLUGIN_CATEGORIES['main']['name'],
         'type': "communicate",
         'tryInline': True,
-        "doc": "Example doc string",
+        "doc": "Connects to the specified websocket, sends the message string to it, then disconnects.",
         # 'format' tokens like $[1] will be replaced in the generated JSON with the corresponding data id wrapped with "{$...$}".
         # Numeric token values correspond to the order in which the data items are listed here, while text tokens correspond
         # to the last part of a dotted data ID (the part after the last period; letters, numbers, and underscore allowed).
@@ -137,8 +143,9 @@ TP_PLUGIN_EVENTS = {}
 
 ##
 ## End Python SDK declarations
+#######################################################################################################################
 
-
+#######################################################################################################################
 # Create the Touch Portal API client.
 try:
     TPClient = TP.Client(
@@ -156,6 +163,8 @@ except Exception as e:
 # Crate the (optional) global logger, an instance of `TouchPortalAPI::Logger` helper class.
 # Logging configuration is set up in main().
 g_log = Logger(name = PLUGIN_ID)
+#######################################################################################################################
+
 
 # Settings will be sent by TP upon initial connection to the plugin,
 # as well as whenever they change at runtime. This example uses a
@@ -172,12 +181,35 @@ def handleSettings(settings, on_connect=False):
         # this example doesn't do anything useful with the setting, just saves it
         TP_PLUGIN_SETTINGS['example']['value'] = value
 
+#######################################################################################################################
+## GLOBAL VARIABLES
+
+G_TEMP_ADDRESS = "ws://localhost:8000/vnyan"
+## G_QUEUE = asyncio.Queue()
+
+## DON'T FUCKING DEVIATE!
+## { 
+##     address: { 
+##         "websocket_run_thread": <thread>, 
+##         "websocket_queue_thread": <thread>,  # the thread where messages in outgoing_messages gets consumed
+##         "websocket": <socket>,               # the websocket itself
+##         "outgoing_messages": [<string>,...], # queue of messages received from TouchPortal
+##         "connected": Bool,                   # flag that signals to the queue thread that the socket is connected
+##     }
+## }
+G_SOCKETS = dict()
+
+G_RUNNING = True
+
+## END GLOBAL VARIABLES
+#######################################################################################################################
 
 ## TP Client event handler callbacks
 
 # Initial connection handler
 @TPClient.on(TP.TYPES.onConnect)
 def onConnect(data):
+    global g_log
     g_log.info(f"Connected to TP v{data.get('tpVersionString', '?')}, plugin v{data.get('pluginVersion', '?')}.")
     g_log.debug(f"Connection: {data}")
     if settings := data.get('settings'):
@@ -190,15 +222,87 @@ def onSettingUpdate(data):
     if (settings := data.get('values')):
         handleSettings(settings, False)
 
+#def sendPingPacket(ws, result):
+   #pingStr = re.findall(".......(.*)", result)
+    #if len(pingStr) != 0:
+        #pingStr = pingStr[0]
+        #ws.send("~m~" + str(len(pingStr)) + "~m~" + pingStr)
 
-# Always remember... https://www.youtube.com/watch?v=mBcY3W5WgNU
-async def sendmessage(destination,message):
-    async with websockets.connect(destination) as websocket:
-        await websocket.send(message)
+#def websocketJob():
+    #global g_log, G_SOCKETS, G_TEMP_ADDRESS
+    #g_log.info("===== STARTING WEBSOCKET LOOP!")
+
+    #G_SOCKETS[G_TEMP_ADDRESS] = {
+        #"socket": websockets.create_connection(G_TEMP_ADDRESS),
+        #"outgoing_messages": asyncio.Queue()
+        #websockets.client.connect(G_TEMP_ADDRESS)
+    #}
+    #while True:
+        #try:
+            #result = ws.recv()
+            #pingStr = re.findall(".......(.*)", result)
+            #if len(pingStr) != 0:
+                #sendPingPacket(ws, result)
+            #else:
+                #g_log.info(f"{result}")
+            
+            #while not G_QUEUE.empty():
+                #G_SOCKETS[G_TEMP_ADDRESS]["socket"].send(G_QUEUE.get_nowait())
+
+        #except KeyboardInterrupt:
+            #print("\nGoodbye!")
+            #exit(0)
+        #except Exception as e:
+            #print(f"ERROR: {e}\nMessage: {result}")
+            #continue
+
+def ws_message(ws, message):
+    global G_SOCKETS
+    print("WebSocket thread: %s" % message)
+
+def ws_open(ws):
+    global G_SOCKETS, g_log
+    g_log.info(f"===== socket {ws.url} has been opened")
+    G_SOCKETS[ws.url]["connected"] = True
+
+def ws_run_thread(*args):
+    global G_SOCKETS, g_log
+    url = args[0]
+    #ws = websocket.WebSocketApp(G_TEMP_ADDRESS, on_open = ws_open, on_message = ws_message)
+    g_log.info(f"===== attempting to open connection to {url}")
+    if url not in G_SOCKETS:
+        g_log.critical("there is no socket cached for address {url} prior to call to ws_run_thread. Unfuck your shit Aoife!")
+        return
+
+    if G_SOCKETS[url]["websocket"] is None:
+        g_log.critical("THERE'S NO WEBSOCKET FOR THE THREAD TO USE! UNFUCK YOUR SHIT AOIFE!")
+        return
+
+    g_log.info("===== ok, now we're opening the connection")
+    #G_SOCKETS[] = websocket.WebSocketApp(args[0], on_open = ws_open, on_message = ws_message)
+    G_SOCKETS[url]["websocket"].run_forever(ping_interval = 9, reconnect = 5) # blocking call
+
+def ws_queue_loop(*args):
+    global G_RUNNING, G_SOCKETS, g_log
+    address = args[0]
+    while G_RUNNING:
+        socket = G_SOCKETS[address]["websocket"]
+        while not G_SOCKETS[address]["outgoing_messages"].empty():
+            if not G_RUNNING: return # ghetto shit
+
+            while not G_SOCKETS[address]["connected"]:
+                if not G_RUNNING: return # ghetto shit
+                g_log.info("===== waiting for socket to connect...")
+
+            message = G_SOCKETS[address]["outgoing_messages"].get_nowait()
+            g_log.info(f"===== sending message {message} to socket {address}")
+            G_SOCKETS[address]["websocket"].send(message)
 
 # Action handler
 @TPClient.on(TP.TYPES.onAction)
 def onAction(data):
+    global G_SOCKETS, g_log
+
     g_log.debug(f"Action: {data}")
     # check that `data` and `actionId` members exist and save them for later use
     if not (action_data := data.get('data')) or not (aid := data.get('actionId')):
@@ -206,19 +310,41 @@ def onAction(data):
     g_log.info(action_data)
 
     if aid == TP_PLUGIN_ACTIONS['sendmessage']['id']:
-        # why does this return None?
-        # destination = TPClient.getActionDataValue(action_data, TP_PLUGIN_ACTIONS['sendmessage']['data']['destination'])
-        # message = TPClient.getActionDataValue(action_data, TP_PLUGIN_ACTIONS['sendmessage']['data']['message'])
-        destination = ""
-        message = ""
+        address = message = ""
         for obj in action_data:
             if obj.get('id') == "tp.plugin.websockets.python.act.sendmessage.data.destination":
-                destination = obj['value']
+                address = obj['value']
+
             elif obj.get('id') == "tp.plugin.websockets.python.act.sendmessage.data.message":
                 message = obj['value']
 
-        g_log.info(f"===== {destination}, {message}")
-        asyncio.run(sendmessage(destination,message))
+        g_log.info(f"===== pushing {message} to queue")
+        #ws = websocket.create_connection(destination)
+        #ws.send(message)
+        #ws.close()
+        if address not in G_SOCKETS:
+            ## { 
+            ##     address: { 
+            ##         "websocket_run_thread":   <thread>,       # the thread that runs the websocket
+            ##         "websocket_queue_thread": <thread>,       # the thread where messages in outgoing_messages get consumed
+            ##         "websocket":              <socket>,       # the websocket itself
+            ##         "outgoing_messages":      [<string>,...], # queue of messages received from TouchPortal
+            ##         "connected":              <bool>,         # flag that signals to the queue thread that the socket is connected
+            ##     }
+            ## }
+            g_log.info("====== opening connection")
+            G_SOCKETS[address] = {}
+            G_SOCKETS[address]["outgoing_messages"] = asyncio.Queue()
+            G_SOCKETS[address]["websocket"] = websocket.WebSocketApp(address, on_open = ws_open, on_message = ws_message)
+            G_SOCKETS[address]["connected"] = False
+            G_SOCKETS[address]["websocket_queue_thread"] = threading.Thread(target = ws_queue_loop, args = [address])
+            G_SOCKETS[address]["websocket_run_thread"] = threading.Thread(target = ws_run_thread, args = [address])
+            G_SOCKETS[address]["websocket_queue_thread"].start()
+            G_SOCKETS[address]["websocket_run_thread"].start()
+
+        G_SOCKETS[address]["outgoing_messages"].put_nowait(message)
+        #G_QUEUE.put_nowait(message)
+        #asyncio.run(sendmessage(message))
 
     else:
         g_log.warning("Got unknown action ID: " + aid)
@@ -226,7 +352,18 @@ def onAction(data):
 # Shutdown handler
 @TPClient.on(TP.TYPES.onShutdown)
 def onShutdown(data):
+    global G_RUNNING, G_SOCKETS, g_log
+
     g_log.info('Received shutdown event from TP Client.')
+
+    G_RUNNING = False
+    for data in G_SOCKETS.values():
+        data["websocket"].close()
+        data["websocket_run_thread"].join()
+        data["websocket_queue_thread"].join()
+    G_SOCKETS = {}
+    # G_WEBSOCKET.wait_closed()
+    # asyncio.run(disconnect())
     # We do not need to disconnect manually because we used `autoClose = True`
     # when constructing TPClient()
     # TPClient.disconnect()
@@ -305,6 +442,7 @@ def main():
         # If connection succeeds, this method will not return (blocks) until the client is disconnected.
         TPClient.connect()
         g_log.info('TP Client closed.')
+
     except KeyboardInterrupt:
         g_log.warning("Caught keyboard interrupt, exiting.")
     except Exception:

@@ -1,5 +1,5 @@
 {
-  "sdk": 3,
+  "sdk": 6,
   "version": 100,
   "name": "Websockets",
   "id": "tp.plugin.websockets.python",
@@ -37,15 +37,9 @@
         }
       ],
       "states": [],
-      "events": []
+      "events": [],
+      "connectors": []
     }
   ],
-  "settings": [
-    {
-      "name": "Example Setting",
-      "type": "text",
-      "default": "Example value",
-      "readOnly": false
-    }
-  ]
+  "settings": []
 }
