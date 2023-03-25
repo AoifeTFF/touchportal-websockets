@@ -220,8 +220,14 @@ def ws_open(ws):
     g_log.info(f"socket {ws.url} has been opened")
     G_SOCKETS[ws.url]["connected"] = True
 
+def ws_close(ws, closeStatus, closeMessage):
+    global G_SOCKETS, g_log
+    g_log.info(f"socket {ws.url} has been closed: {closeStatus} -> {closeMessage}")
+    del G_SOCKETS[ws.url]
+
 def ws_run_thread(*args):
     global G_SOCKETS, g_log
+    #try:
     url = args[0]
     g_log.info(f"attempting to open connection to {url}")
     if url not in G_SOCKETS:
@@ -233,6 +239,10 @@ def ws_run_thread(*args):
         return
     
     G_SOCKETS[url]["websocket"].run_forever(ping_interval = 9, reconnect = 5) # blocking call
+    g_log.info(f"we lost connection to {url}")
+    #except websocket._exceptions.WebSocketConnectionClosedException:
+        #g_log.info(f"we lost connection to {url}")
+        #G_SOCKETS[url]["connected"] = False
 
 def ws_queue_loop(*args):
     global G_RUNNING, G_SOCKETS, g_log, G_QUEUE_LOOP_THREAD_EVENT
@@ -246,8 +256,9 @@ def ws_queue_loop(*args):
 
             # don't bother until we connect.
             if not data["connected"]:
-                g_log.info(f"not connected yet {data}")
+                g_log.info(f"not connected to {data['websocket'].url}")
                 continue
+
             messageQ = data["outgoing_messages"]
             while not messageQ.empty():
                 message = messageQ.get_nowait()
@@ -282,13 +293,13 @@ def onAction(data):
             ## }
             G_SOCKETS[address] = {}
             G_SOCKETS[address]["outgoing_messages"] = asyncio.Queue()
-            G_SOCKETS[address]["websocket"] = websocket.WebSocketApp(address, on_open = ws_open)
             G_SOCKETS[address]["connected"] = False
+            G_SOCKETS[address]["websocket"] = websocket.WebSocketApp(address, on_open = ws_open, on_close = ws_close)
             G_SOCKETS[address]["websocket_run_thread"] = threading.Thread(target = ws_run_thread, args = [address])
             G_SOCKETS[address]["websocket_run_thread"].start()
 
-        G_QUEUE_LOOP_THREAD_EVENT.set()
         G_SOCKETS[address]["outgoing_messages"].put_nowait(message)
+        G_QUEUE_LOOP_THREAD_EVENT.set()
 
     else:
         g_log.warning("Got unknown action ID: " + aid)
