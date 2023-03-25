@@ -248,8 +248,6 @@ def ws_queue_loop(*args):
     global G_RUNNING, G_SOCKETS, g_log, G_QUEUE_LOOP_THREAD_EVENT
     while G_RUNNING:
         g_log.info("waiting for data...")
-        G_QUEUE_LOOP_THREAD_EVENT.wait()
-        G_QUEUE_LOOP_THREAD_EVENT.clear()
         for data in G_SOCKETS.values():
             if not G_RUNNING: 
                 return ## short circuit
@@ -263,6 +261,9 @@ def ws_queue_loop(*args):
             while not messageQ.empty():
                 message = messageQ.get_nowait()
                 data["websocket"].send(message)
+
+        G_QUEUE_LOOP_THREAD_EVENT.wait()
+        G_QUEUE_LOOP_THREAD_EVENT.clear()
 
 # Action handler
 @TPClient.on(TP.TYPES.onAction)
@@ -308,13 +309,13 @@ def onAction(data):
 @TPClient.on(TP.TYPES.onShutdown)
 def onShutdown(data):
     global G_RUNNING, G_SOCKETS, g_log
+    G_RUNNING = False
 
     g_log.info('Received shutdown event from TP Client.')
     G_QUEUE_LOOP_THREAD_EVENT.set()
     g_log.info("stopping the queue thread")
     G_QUEUE_LOOP_THREAD.join()
 
-    G_RUNNING = False
     for address, data in G_SOCKETS.items():
         g_log.info(f"killing connection to {address}")
         data["websocket"].close()
