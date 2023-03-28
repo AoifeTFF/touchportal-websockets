@@ -17,7 +17,7 @@ import asyncio
 import threading
 
 # Version string of this plugin (in Python style).
-__version__ = "1.0"
+__version__ = "0.1"
 
 # The unique plugin ID string is used in multiple places.
 # It also forms the base for all other ID strings (for states, actions, etc).

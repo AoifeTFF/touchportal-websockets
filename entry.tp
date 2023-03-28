@@ -1,6 +1,6 @@
 {
   "sdk": 6,
-  "version": 100,
+  "version": 10,
   "name": "Websockets",
   "id": "tp.plugin.websockets.python",
   "configuration": {
